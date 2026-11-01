@@ -9,8 +9,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     gemini_api_key: str = ""
-    gemini_model_name: str = "gemini-2.0-flash"
-    embedding_model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"
+    gemini_model_name: str = "gemini-3.8-flash"
+    embedding_model_name: str = "models/gemini-embedding-001"
     chroma_dir: str = "chroma_db"
     chroma_collection_name: str = "nusantaracare_kb"
     source_doc_path: str = "data/raw_docs/nusantaracare_panduan_operasional_internal_v2.md"

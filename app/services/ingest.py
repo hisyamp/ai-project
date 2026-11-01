@@ -2,8 +2,9 @@ import re
 from dataclasses import dataclass, field
 
 import chromadb
+import google.generativeai as genai
 import yaml
-from chromadb.utils import embedding_functions
+from chromadb import Documents, EmbeddingFunction, Embeddings
 
 from app.config import settings
 
@@ -167,9 +168,37 @@ def build_chunks(raw_text: str) -> list[Chunk]:
     return chunks
 
 
-def _get_embedding_function():
-    return embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name=settings.embedding_model_name
+class GeminiEmbeddingFunction(EmbeddingFunction[Documents]):
+    """Embedding function backed by the Gemini Embedding API.
+
+    Avoids loading a local torch/sentence-transformers model, which keeps
+    the service's memory footprint small enough for constrained cloud
+    instances (loading a local multilingual model pushes RSS past 1GB).
+    """
+
+    def __init__(self, model_name: str, api_key: str):
+        self.model_name = model_name
+        genai.configure(api_key=api_key)
+
+    def _embed(self, texts: list[str], task_type: str) -> Embeddings:
+        result = genai.embed_content(model=self.model_name, content=texts, task_type=task_type)
+        return result["embedding"]
+
+    def __call__(self, input: Documents) -> Embeddings:
+        return self._embed(list(input), task_type="retrieval_document")
+
+    def embed_query(self, input: Documents) -> Embeddings:
+        return self._embed(list(input), task_type="retrieval_query")
+
+    @staticmethod
+    def name() -> str:
+        return "gemini_embedding_function"
+
+
+def _get_embedding_function() -> GeminiEmbeddingFunction:
+    return GeminiEmbeddingFunction(
+        model_name=settings.embedding_model_name,
+        api_key=settings.gemini_api_key,
     )
 
 

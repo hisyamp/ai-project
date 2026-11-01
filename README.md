@@ -115,11 +115,11 @@ Setiap chunk disimpan dengan metadata:
 
 ### Vector Database: ChromaDB
 
-Dipilih karena: (1) embedded/serverless — tidak perlu service terpisah, cocok untuk knowledge base kecil (~40-60 chunk dari satu dokumen); (2) mendukung metadata filtering bawaan (`where={"is_active": True}`) yang krusial untuk memisahkan v2.0 vs v1.4; (3) persist-to-disk sederhana (`PersistentClient`); (4) terintegrasi mudah dengan custom embedding function (sentence-transformers lokal).
+Dipilih karena: (1) embedded/serverless — tidak perlu service terpisah, cocok untuk knowledge base kecil (~40-60 chunk dari satu dokumen); (2) mendukung metadata filtering bawaan (`where={"is_active": True}`) yang krusial untuk memisahkan v2.0 vs v1.4; (3) persist-to-disk sederhana (`PersistentClient`); (4) terintegrasi mudah dengan custom embedding function.
 
 ### Embedding
 
-Model lokal `paraphrase-multilingual-MiniLM-L12-v2` (sentence-transformers) — dipilih karena dokumen sepenuhnya berbahasa Indonesia, model multilingual ini punya performa semantic similarity yang baik untuk Bahasa Indonesia tanpa memerlukan API key tambahan (berbeda dari LLM generation yang pakai Gemini), sehingga mengurangi dependensi eksternal untuk komponen retrieval.
+Menggunakan **Gemini Embedding API** (`models/gemini-embedding-001`, lihat `GeminiEmbeddingFunction` di `app/services/ingest.py`) alih-alih model lokal (mis. sentence-transformers). Alasan: memuat model multilingual lokal (`paraphrase-multilingual-MiniLM-L12-v2` beserta dependensi `torch`/`sentence-transformers`) menaikkan RSS memory proses hingga ~1.2GB saat startup — melebihi batas RAM instance pada deployment cloud (menyebabkan container di-OOM-kill sebelum healthcheck selesai). Memakai API embedding eksternal menurunkan puncak RAM aplikasi menjadi ~140MB, karena tidak ada lagi model ML yang dimuat ke proses. Trade-off: menambah satu dependensi jaringan (API call) untuk setiap proses embedding chunk/query, memakai kuota API yang sama dengan Gemini LLM generation. Embedding query dan dokumen dibedakan lewat parameter `task_type` (`retrieval_query` vs `retrieval_document`) agar representasi vektor lebih presisi untuk kasus retrieval asimetris.
 
 ### Retrieval
 
@@ -164,7 +164,7 @@ app/services/agent.py  (Router)
 app/services/rag.py  (RAG Pipeline)
     │
     ├─ 1. Load/build ChromaDB index (app/services/ingest.py, cached setelah startup)
-    ├─ 2. Embed query (sentence-transformers) & retrieve top-k via ChromaDB
+    ├─ 2. Embed query (Gemini Embedding API) & retrieve top-k via ChromaDB
     │      (filter is_active sesuai keputusan router)
     ├─ 3. Filter hasil retrieval dengan similarity_threshold
     │      └─ Jika kosong → reason_code=no_relevant_context
@@ -303,6 +303,7 @@ _(Isi/lengkapi tabel ini dengan hasil aktual dari server yang berjalan — baik 
 
 - Similarity threshold (0.35) ditentukan melalui eksperimen manual pada skala kecil, belum divalidasi dengan dataset evaluasi berlabel formal (presisi/recall retrieval)
 - Model embedding multilingual general-purpose, bukan yang di-fine-tune khusus domain SOP/kebijakan perusahaan
+- Embedding bergantung pada Gemini Embedding API (bukan model lokal) — build/reload index membutuhkan koneksi internet dan ikut memakai kuota/rate limit API key yang sama dengan LLM generation
 - Heuristik deteksi prompt injection berbasis pattern-matching dapat memberikan false negative untuk teknik obfuscation yang lebih canggih (mis. encoding, bahasa campuran tidak baku)
 - Tidak ada mekanisme rate-limiting atau autentikasi di endpoint API — perlu ditambahkan sebelum dipakai di lingkungan produksi sungguhan
 - Tidak menyimpan histori percakapan multi-turn; setiap request diproses independen
